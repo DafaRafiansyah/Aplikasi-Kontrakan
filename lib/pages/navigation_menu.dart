@@ -12,26 +12,35 @@ class NavMenu extends StatefulWidget {
 
 class _NavMenuState extends State<NavMenu> {
   int myCurrentIndex = 0;
-  List pages = const [DaftarKamar(), ListPenghuni(), Histori()];
+  List pages =  [const DaftarKamar(), ListPenghuni(), Histori()];
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       bottomNavigationBar: BottomNavigationBar(
-          currentIndex: myCurrentIndex,
-          onTap: (index) {
-            setState(() {
-              myCurrentIndex = index;
-            });
-          },
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.home), label: "Kamar"),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.person), label: "Penghuni"),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.history), label: "Histori"),
-          ]),
+        currentIndex: myCurrentIndex,
+        onTap: (index) {
+          setState(() {
+            myCurrentIndex = index;
+          });
+        },
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.home),
+            label: "Kamar",
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person),
+            label: "Penghuni",
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.history),
+            label: "Histori",
+          ),
+        ],
+      ),
       body: pages[myCurrentIndex],
+
     );
   }
 }
