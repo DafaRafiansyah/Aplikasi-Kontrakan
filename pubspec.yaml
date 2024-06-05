@@ -33,6 +33,7 @@ dependencies:
   sqflite: ^2.3.3+1
   path: ^1.9.0
   intl: ^0.19.0
+  flutter_launcher_icons: ^0.13.1
 
 
   # The following adds the Cupertino Icons font to your application.
@@ -54,6 +55,11 @@ dev_dependencies:
 # following page: https://dart.dev/tools/pub/pubspec
 
 # The following section is specific to Flutter packages.
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/icon.png"
+  background_color: "blueGrey"
 flutter:
 
   # The following line ensures that the Material Icons font is

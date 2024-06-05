@@ -20,8 +20,10 @@ class DaftarKamarState extends State<DaftarKamar> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Daftar Kamar'),
+        title: const Text('Daftar Kamar',style: TextStyle(color: Colors.white),),
+        backgroundColor: Colors.blueGrey,
       ),
+      backgroundColor: const Color(0xFFF5F5F5),
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: dbHelper.queryAllRooms(),
         builder: (context, snapshot) {
@@ -48,18 +50,35 @@ class DaftarKamarState extends State<DaftarKamar> {
 
   Widget _buildLantaiSection(String title, List<Map<String, dynamic>> rooms) {
     return ExpansionTile(
-      title: Text(title),
+      title: Text(title,style: const TextStyle(fontSize: 20,fontWeight: FontWeight.bold),),
       children: rooms.map((room) {
         final isInteractive = room['status'] == 'kosong' || room['status'] == 'dalam_perawatan';
-        return ListTile(
-          title: Text('Kamar ${room['nomor_kamar']}'),
-          subtitle: Text('Status: ${room['status']}'),
-          onTap: isInteractive ? () => _showRoomOptions(room['id'], room['status']) : null,
-          enabled: isInteractive,
+        final text = isInteractive ? room['status'] == 'kosong' ? 'Status: Kosong' :'Status: Dalam Perawatan' :'Ditempati oleh: ${room['status']}';
+        final cardColor= isInteractive ? Colors.blueGrey[100] : Colors.amber[200];
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+          child: Card(
+            color: cardColor,
+            elevation: 5,
+            child: ListTile(
+              title: Text(
+                'Kamar ${room['nomor_kamar']}',
+                style: const TextStyle(color: Colors.black),
+              ),
+              subtitle: Text(
+                text,
+                style: const TextStyle(color: Colors.black),
+              ),
+              onTap: isInteractive ? () => _showRoomOptions(room['id'], room['status']) : null,
+              enabled: isInteractive,
+            ),
+          ),
         );
       }).toList(),
     );
   }
+
+
 
   void _showRoomOptions(int roomId, String currentStatus) {
     showDialog(
@@ -67,31 +86,53 @@ class DaftarKamarState extends State<DaftarKamar> {
       builder: (context) {
         return AlertDialog(
           title: const Text('Ubah Status Kamar'),
-          content: Text('Status saat ini: $currentStatus'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8.0),
+                  color: Colors.blueGrey,
+                ),
+                child: ListTile(
+                  title: const Text('Dalam Perawatan',style: TextStyle(color: Colors.white),),
+                  onTap: () {
+                    _updateRoomStatus(roomId, 'dalam_perawatan');
+                    Navigator.pop(context);
+                  },
+                ),
+              ),
+              const SizedBox(height: 10,),
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8.0),
+                  color: Colors.blueGrey,
+                ),
+                child: ListTile(
+                  title: const Text('Kosong',style: TextStyle(color: Colors.white),),
+                  onTap: () {
+                    _updateRoomStatus(roomId, 'kosong');
+                    Navigator.pop(context);
+                  },
+                ),
+              ),
+
+            ],
+          ),
           actions: [
-            TextButton(
-              onPressed: () {
-                _updateRoomStatus(roomId, 'dalam_perawatan');
-                Navigator.pop(context);
-              },
-              child: const Text('Dalam Perawatan'),
-            ),
-            TextButton(
-              onPressed: () {
-                _updateRoomStatus(roomId, 'kosong');
-                Navigator.pop(context);
-              },
-              child: const Text('Kosong'),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              child: const Text('Batal'),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                },
+                child: const Text('Batal'),
+              ),
             ),
           ],
         );
       },
     );
   }
+
 }

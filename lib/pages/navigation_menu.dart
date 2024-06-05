@@ -12,18 +12,21 @@ class NavMenu extends StatefulWidget {
 
 class _NavMenuState extends State<NavMenu> {
   int myCurrentIndex = 0;
-  List pages =  [const DaftarKamar(), ListPenghuni(), Histori()];
+  List pages =  [const DaftarKamar(), const ListPenghuni(), Histori()];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       bottomNavigationBar: BottomNavigationBar(
+        backgroundColor: Colors.blueGrey,
         currentIndex: myCurrentIndex,
         onTap: (index) {
           setState(() {
             myCurrentIndex = index;
           });
         },
+        unselectedItemColor: Colors.grey[400],
+        selectedItemColor: Colors.white,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.home),
@@ -40,7 +43,7 @@ class _NavMenuState extends State<NavMenu> {
         ],
       ),
       body: pages[myCurrentIndex],
-
     );
   }
+
 }

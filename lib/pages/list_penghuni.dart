@@ -1,8 +1,12 @@
+// list_penghuni.dart
 import 'package:flutter/material.dart';
-import 'package:aplikasi_kontrakan/database_helper.dart';
 import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
+import 'package:aplikasi_kontrakan/database_helper.dart';
+import 'package:aplikasi_kontrakan/tambah_penghuni.dart';
+
 class ListPenghuni extends StatefulWidget {
+  const ListPenghuni({super.key});
+
   @override
   ListPenghuniState createState() => ListPenghuniState();
 }
@@ -10,24 +14,74 @@ class ListPenghuni extends StatefulWidget {
 class ListPenghuniState extends State<ListPenghuni> {
   final DatabaseHelper dbHelper = DatabaseHelper();
 
+  String _sortBy = 'nomor_kamar';
+  bool _ascending = true;
+
   Future<void> _loadTenants() async {
     setState(() {});
+  }
+
+  void _sortTenants(String sortBy, bool ascending) {
+    setState(() {
+      _sortBy = sortBy;
+      _ascending = ascending;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('List Penghuni'),
+        title: const Text(
+          'List Penghuni',
+          style: TextStyle(color: Colors.white),
+        ),
+        backgroundColor: Colors.blueGrey,
         actions: [
           IconButton(
-            icon: const Icon(Icons.add),
+            icon: const Icon(
+              Icons.add,
+              color: Colors.white,
+            ),
             onPressed: () {
               _showAddTenantForm(context);
             },
           ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.sort, color: Colors.white),
+            onSelected: (value) {
+              if (value.startsWith('nomor_kamar')) {
+                _sortTenants('nomor_kamar', value.endsWith('asc'));
+              } else if (value.startsWith('tanggal_masuk')) {
+                _sortTenants('tanggal_masuk', value.endsWith('asc'));
+              }
+            },
+            itemBuilder: (BuildContext context) => [
+              CheckedPopupMenuItem(
+                value: 'nomor_kamar_asc',
+                checked: _sortBy == 'nomor_kamar' && _ascending,
+                child: const Text('Nomor Kamar Ascending'),
+              ),
+              CheckedPopupMenuItem(
+                value: 'nomor_kamar_desc',
+                checked: _sortBy == 'nomor_kamar' && !_ascending,
+                child: const Text('Nomor Kamar Descending'),
+              ),
+              CheckedPopupMenuItem(
+                value: 'tanggal_masuk_asc',
+                checked: _sortBy == 'tanggal_masuk' && _ascending,
+                child: const Text('Tanggal Masuk Ascending'),
+              ),
+              CheckedPopupMenuItem(
+                value: 'tanggal_masuk_desc',
+                checked: _sortBy == 'tanggal_masuk' && !_ascending,
+                child: const Text('Tanggal Masuk Descending'),
+              ),
+            ],
+          ),
         ],
       ),
+      backgroundColor: const Color(0xFFF5F5F5),
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: dbHelper.queryAllTenantsWithRoomNumbers(),
         builder: (context, snapshot) {
@@ -36,27 +90,92 @@ class ListPenghuniState extends State<ListPenghuni> {
           } else if (snapshot.hasError) {
             return Center(child: Text('Error: ${snapshot.error}'));
           } else {
-            final tenants = snapshot.data;
+            // Create a modifiable copy of the tenants list
+            var tenants = List<Map<String, dynamic>>.from(snapshot.data ?? []);
+
+            // Sorting tenants based on the selected criteria
+            tenants.sort((a, b) {
+              int compare;
+              if (_sortBy == 'nomor_kamar') {
+                compare = a['nomor_kamar'].compareTo(b['nomor_kamar']);
+              } else {
+                compare = a['tanggal_masuk'].compareTo(b['tanggal_masuk']);
+              }
+              return _ascending ? compare : -compare;
+            });
+
             return ListView.builder(
-              itemCount: tenants?.length ?? 0,
+              itemCount: tenants.length,
               itemBuilder: (context, index) {
-                return ListTile(
-                  title: Text('${tenants![index]['nama']}'),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Email: ${tenants[index]['email']}'),
-                      Text('Nomor Telp: ${tenants[index]['no_telp']}'),
-                      Text('Nomor Kamar: ${tenants[index]['nomor_kamar']}'),
-                      Text('Status Pembayaran: ${tenants[index]['status_pembayaran']}'),
-                      Text('Tanggal Masuk: ${tenants[index]['tanggal_masuk']}'),
-                      Text('Tanggal Habis: ${tenants[index]['tanggal_habis']}'),
-                      Text(tenants[index]['status_pembayaran'] == 'penuh'?'Tanggal Bayar: ${tenants[index]['tanggal_bayar']}':'Tagihan: ${_formatCurrency(tenants[index]['tagihan'])}'),
-                    ],
+                return Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8.0, vertical: 4.0),
+                  child: Dismissible(
+                    key: Key(tenants[index]['id'].toString()),
+                    direction: DismissDirection.endToStart,
+                    background: Container(
+                      color: Colors.red,
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: const Icon(Icons.delete, color: Colors.white),
+                    ),
+                    confirmDismiss: (direction) async {
+                      return await showDialog(
+                        context: context,
+                        builder: (context) {
+                          return AlertDialog(
+                            title: const Text('Konfirmasi Hapus'),
+                            content: const Text(
+                                'Anda yakin ingin menghapus penghuni ini?'),
+                            actions: [
+                              TextButton(
+                                onPressed: () {
+                                  Navigator.of(context).pop(false);
+                                },
+                                child: const Text('Cancel'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () async {
+                                  Navigator.of(context).pop(true);
+                                  await dbHelper.moveTenantToHistory(
+                                      tenants[index]['id']);
+                                  _loadTenants();
+                                },
+                                child: const Text('OK'),
+                              ),
+                            ],
+                          );
+                        },
+                      );
+                    },
+                    onDismissed: (direction) async {
+                      await dbHelper.moveTenantToHistory(tenants[index]['id']);
+                      _loadTenants();
+                    },
+                    child: Card(
+                      color: tenants[index]['status_pembayaran'] == 'Lunas'
+                          ? Colors.blueGrey[100]
+                          : Colors.amber[200],
+                      elevation: 5,
+                      child: ListTile(
+                        title: Text(
+                            '${tenants[index]['nomor_kamar']} - ${tenants[index]['nama']}'),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                                '${tenants[index]['tanggal_masuk']} - ${tenants[index]['tanggal_habis']}'),
+                            Text('Nomor Telepon: ${tenants[index]['no_telp']}'),
+                            Text(
+                                'Tagihan: ${dbHelper.formatCurrency(tenants[index]['tagihan'])}'),
+                          ],
+                        ),
+                        onTap: () {
+                          _showEditTenantForm(context, tenants[index]);
+                        },
+                      ),
+                    ),
                   ),
-                  onTap: () {
-                    _showEditTenantForm(context, tenants[index]);
-                  },
                 );
               },
             );
@@ -66,258 +185,30 @@ class ListPenghuniState extends State<ListPenghuni> {
     );
   }
 
-  String _formatCurrency(String value) {
-    if (value.isEmpty) return '';
-    final formatter = NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ');
-    return formatter.format(int.parse(value));
-  }
+
+
 
   Future<void> _showAddTenantForm(BuildContext context) async {
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => AddTenantForm(dbHelper: dbHelper)),
+      MaterialPageRoute(
+          builder: (context) => AddTenantForm(dbHelper: dbHelper)),
     );
     if (result == true) {
       _loadTenants();
     }
   }
 
-  Future<void> _showEditTenantForm(BuildContext context, Map<String, dynamic> tenant) async {
+  Future<void> _showEditTenantForm(
+      BuildContext context, Map<String, dynamic> tenant) async {
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => EditTenantForm(dbHelper: dbHelper, tenant: tenant)),
+      MaterialPageRoute(
+          builder: (context) =>
+              EditTenantForm(dbHelper: dbHelper, tenant: tenant, reloadTenants: _loadTenants,)),
     );
     if (result == true) {
       _loadTenants();
-    }
-  }
-}
-
-
-
-class AddTenantForm extends StatefulWidget {
-  final DatabaseHelper dbHelper;
-
-  const AddTenantForm({super.key, required this.dbHelper});
-
-  @override
-  AddTenantFormState createState() => AddTenantFormState();
-}
-
-class AddTenantFormState extends State<AddTenantForm> {
-  final _formKey = GlobalKey<FormState>();
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _noTelpController = TextEditingController();
-  final TextEditingController _tanggalMasukController = TextEditingController();
-  final TextEditingController _tanggalHabisController = TextEditingController();
-  final TextEditingController _tanggalBayarController = TextEditingController();
-  final TextEditingController _tagihanController = TextEditingController();
-  String? _selectedRoom;
-  String? _paymentStatus;
-  List<Map<String, dynamic>> _availableRooms = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _loadAvailableRooms();
-  }
-
-  Future<void> _loadAvailableRooms() async {
-    final rooms = await widget.dbHelper.queryAllRooms();
-    setState(() {
-      _availableRooms = rooms.where((room) => room['status'] == 'kosong').toList();
-      _availableRooms.sort((a, b) => a['nomor_kamar'].compareTo(b['nomor_kamar']));
-    });
-  }
-
-  Future<void> _selectDate(BuildContext context, TextEditingController controller) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2101),
-    );
-    if (picked != null) {
-      setState(() {
-        controller.text = picked.toLocal().toString().split(' ')[0];
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Tambah Penghuni'),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            children: [
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(labelText: 'Nama'),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Nama tidak boleh kosong';
-                  }
-                  return null;
-                },
-              ),
-              TextFormField(
-                controller: _emailController,
-                decoration: const InputDecoration(labelText: 'Email'),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Email tidak boleh kosong';
-                  }
-                  return null;
-                },
-              ),
-              TextFormField(
-                controller: _noTelpController,
-                decoration: const InputDecoration(labelText: 'Nomor Telp'),
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'No Telp tidak boleh kosong';
-                  } else if (value.length < 11 || value.length > 14) {
-                    return 'No Telp harus diantara 11-14';
-                  }
-                  return null;
-                },
-              ),
-              TextFormField(
-                controller: _tanggalMasukController,
-                decoration: const InputDecoration(labelText: 'Tanggal Masuk'),
-                readOnly: true,
-                onTap: () => _selectDate(context, _tanggalMasukController),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Tanggal Masuk tidak boleh kosong';
-                  }
-                  return null;
-                },
-              ),
-              TextFormField(
-                controller: _tanggalHabisController,
-                decoration: const InputDecoration(labelText: 'Tanggal Habis'),
-                readOnly: true,
-                onTap: () => _selectDate(context, _tanggalHabisController),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Tanggal Habis tidak boleh kosong';
-                  }
-                  // Convert the input strings to DateTime
-                  DateTime tanggalMasuk = DateTime.parse(_tanggalMasukController.text);
-                  DateTime tanggalHabis = DateTime.parse(value);
-
-                  // Compare the dates
-                  if (tanggalHabis.isBefore(tanggalMasuk)) {
-                    return 'Tanggal Habis tidak boleh sebelum Tanggal Masuk';
-                  }
-                  return null;
-                },
-              ),
-
-              DropdownButtonFormField<String>(
-                decoration: const InputDecoration(labelText: 'Nomor Kamar'),
-                items: _availableRooms.map((room) {
-                  return DropdownMenuItem<String>(
-                    value: room['id'].toString(),
-                    child: Text(room['nomor_kamar'].toString()),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedRoom = value;
-                  });
-                },
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Pilih nomor kamar';
-                  }
-                  return null;
-                },
-              ),
-              DropdownButtonFormField<String>(
-                decoration: const InputDecoration(labelText: 'Status Pembayaran'),
-                items: ['penuh', 'belum'].map((status) {
-                  return DropdownMenuItem<String>(
-                    value: status,
-                    child: Text(status),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _paymentStatus = value;
-                  });
-                },
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Pilih status pembayaran';
-                  }
-                  return null;
-                },
-              ),
-              if (_paymentStatus == 'penuh')
-                TextFormField(
-                  controller: _tanggalBayarController,
-                  decoration: const InputDecoration(labelText: 'Tanggal Bayar'),
-                  readOnly: true,
-                  onTap: () => _selectDate(context, _tanggalBayarController),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Tanggal Bayar tidak boleh kosong';
-                    }
-                    return null;
-                  },
-                ),
-              if (_paymentStatus == 'belum')
-                TextFormField(
-                  controller: _tagihanController,
-                  decoration: const InputDecoration(labelText: 'Tagihan'),
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Tagihan tidak boleh kosong';
-                    }
-                    return null;
-                  },
-                ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _submitForm,
-                child: const Text('Simpan'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _submitForm() async {
-    if (_formKey.currentState!.validate()) {
-      await widget.dbHelper.insertTenant({
-        'nama': _nameController.text,
-        'email': _emailController.text,
-        'no_telp': _noTelpController.text,
-        'tanggal_masuk': _tanggalMasukController.text,
-        'tanggal_habis': _tanggalHabisController.text,
-        'tanggal_bayar': _tanggalBayarController.text,
-        'id_kamar': int.parse(_selectedRoom!),
-        'status_pembayaran': _paymentStatus!,
-        'tagihan': _tagihanController.text,
-      });
-      await widget.dbHelper.updateRoomStatus(int.parse(_selectedRoom!), _nameController.text);
-      if (!context.mounted) return;
-      Navigator.pop(context, true);
     }
   }
 }
@@ -325,8 +216,10 @@ class AddTenantFormState extends State<AddTenantForm> {
 class EditTenantForm extends StatefulWidget {
   final DatabaseHelper dbHelper;
   final Map<String, dynamic> tenant;
+  final Function reloadTenants;
 
-  const EditTenantForm({super.key, required this.dbHelper, required this.tenant});
+  const EditTenantForm(
+      {super.key, required this.dbHelper, required this.tenant, required this.reloadTenants,});
 
   @override
   EditTenantFormState createState() => EditTenantFormState();
@@ -334,46 +227,69 @@ class EditTenantForm extends StatefulWidget {
 
 class EditTenantFormState extends State<EditTenantForm> {
   final _formKey = GlobalKey<FormState>();
+  final DatabaseHelper dbHelper = DatabaseHelper();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _noTelpController = TextEditingController();
   final TextEditingController _tanggalMasukController = TextEditingController();
   final TextEditingController _tanggalHabisController = TextEditingController();
-  final TextEditingController _tanggalBayarController = TextEditingController();
   final TextEditingController _tagihanController = TextEditingController();
   String? _selectedRoom;
-  String? _paymentStatus;
   List<Map<String, dynamic>> _availableRooms = [];
+  bool _isEditMode = false;
+  int _totalPayment = 0;
+  String _statusPembayaran = 'Belum Lunas';
 
   @override
   void initState() {
     super.initState();
+    _initializeControllers();
+    _loadAvailableRooms();
+    _updateTotalPaymentAndStatus();
+  }
+
+  void _initializeControllers() {
     _nameController.text = widget.tenant['nama'];
     _emailController.text = widget.tenant['email'];
     _noTelpController.text = widget.tenant['no_telp'];
     _tanggalMasukController.text = widget.tenant['tanggal_masuk'];
     _tanggalHabisController.text = widget.tenant['tanggal_habis'];
-    _tanggalBayarController.text = widget.tenant['tanggal_bayar'] ?? '';
     _tagihanController.text = widget.tenant['tagihan'] ?? '';
     _selectedRoom = widget.tenant['nomor_kamar'].toString();
-    _paymentStatus = widget.tenant['status_pembayaran'];
-    _loadAvailableRooms();
   }
 
   Future<void> _loadAvailableRooms() async {
     final rooms = await widget.dbHelper.queryAllRooms();
     setState(() {
-      _availableRooms = rooms.where((room) => room['status'] == 'kosong' || room['id'] == int.parse(_selectedRoom!)).toList();
-      _availableRooms.sort((a, b) => a['nomor_kamar'].compareTo(b['nomor_kamar']));
+      _availableRooms = rooms
+          .where((room) =>
+              room['status'] == 'kosong' ||
+              room['id'] == int.parse(_selectedRoom!))
+          .toList();
+      _availableRooms
+          .sort((a, b) => a['nomor_kamar'].compareTo(b['nomor_kamar']));
     });
   }
 
-  Future<void> _selectDate(BuildContext context, TextEditingController controller) async {
+  Future<void> _selectDate(
+      BuildContext context, TextEditingController controller) async {
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: DateTime.now(),
       firstDate: DateTime(2000),
       lastDate: DateTime(2101),
+      builder: (BuildContext context, Widget? child) {
+        return Theme(
+          data: ThemeData.light().copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Colors.blueGrey,
+              onPrimary: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
     if (picked != null) {
       setState(() {
@@ -381,164 +297,129 @@ class EditTenantFormState extends State<EditTenantForm> {
       });
     }
   }
+  Future<void> _showEditPaymentDialog(Map<String, dynamic> payment) async {
+    final TextEditingController tanggalBayarController = TextEditingController(text: payment['tanggal_bayar']);
+    final TextEditingController nominalController = TextEditingController(text: payment['nominal']);
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Edit Penghuni'),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Edit Pembayaran'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(labelText: 'Nama'),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Nama tidak boleh kosong';
-                  }
-                  return null;
-                },
+                controller: tanggalBayarController,
+                decoration: const InputDecoration(labelText: 'Tanggal Bayar'),
+                readOnly: true,
+                onTap: () => _selectDate(context, tanggalBayarController),
               ),
               TextFormField(
-                controller: _emailController,
-                decoration: const InputDecoration(labelText: 'Email'),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Email tidak boleh kosong';
-                  }
-                  return null;
-                },
-              ),
-              TextFormField(
-                controller: _noTelpController,
-                decoration: const InputDecoration(labelText: 'Nomor Telp'),
+                controller: nominalController,
+                decoration: const InputDecoration(labelText: 'Nominal'),
                 keyboardType: TextInputType.number,
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'No Telp tidak boleh kosong';
-                  } else if (value.length < 11 || value.length > 14) {
-                    return 'No Telp harus diantara 11-14';
-                  }
-                  return null;
-                },
-              ),
-              TextFormField(
-                controller: _tanggalMasukController,
-                decoration: const InputDecoration(labelText: 'Tanggal Masuk'),
-                readOnly: true,
-                onTap: () => _selectDate(context, _tanggalMasukController),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Tanggal Masuk tidak boleh kosong';
-                  }
-                  return null;
-                },
-              ),
-              TextFormField(
-                controller: _tanggalHabisController,
-                decoration: const InputDecoration(labelText: 'Tanggal Habis'),
-                readOnly: true,
-                onTap: () => _selectDate(context, _tanggalHabisController),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Tanggal Habis tidak boleh kosong';
-                  }
-                  // Convert the input strings to DateTime
-                  DateTime tanggalMasuk = DateTime.parse(_tanggalMasukController.text);
-                  DateTime tanggalHabis = DateTime.parse(value);
-
-                  // Compare the dates
-                  if (tanggalHabis.isBefore(tanggalMasuk)) {
-                    return 'Tanggal Habis tidak boleh sebelum Tanggal Masuk';
-                  }
-                  return null;
-                },
-              ),
-
-              DropdownButtonFormField<String>(
-                decoration: const InputDecoration(labelText: 'Nomor Kamar'),
-                items: _availableRooms.map((room) {
-                  return DropdownMenuItem<String>(
-                    value: room['id'].toString(),
-                    child: Text(room['nomor_kamar'].toString()),
-                  );
-                }).toList(),
-                value: _selectedRoom,
-                onChanged: (value) {
-                  setState(() {
-                    _selectedRoom = value;
-                  });
-                },
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Pilih nomor kamar';
-                  }
-                  return null;
-                },
-              ),
-              DropdownButtonFormField<String>(
-                decoration: const InputDecoration(labelText: 'Status Pembayaran'),
-                items: ['penuh', 'belum'].map((status) {
-                  return DropdownMenuItem<String>(
-                    value: status,
-                    child: Text(status),
-                  );
-                }).toList(),
-                value: _paymentStatus,
-                onChanged: (value) {
-                  setState(() {
-                    _paymentStatus = value;
-                  });
-                },
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Pilih status pembayaran';
-                  }
-                  return null;
-                },
-              ),
-              if (_paymentStatus == 'penuh')
-                TextFormField(
-                  controller: _tanggalBayarController,
-                  decoration: const InputDecoration(labelText: 'Tanggal Bayar'),
-                  readOnly: true,
-                  onTap: () => _selectDate(context, _tanggalBayarController),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Tanggal Bayar tidak boleh kosong';
-                    }
-                    return null;
-                  },
-                ),
-              if (_paymentStatus == 'belum')
-                TextFormField(
-                  controller: _tagihanController,
-                  decoration: const InputDecoration(labelText: 'Tagihan'),
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Tagihan tidak boleh kosong';
-                    }
-                    return null;
-                  },
-                ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _submitForm,
-                child: const Text('Simpan'),
               ),
             ],
           ),
-        ),
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context, {
+                  'tanggal_bayar': tanggalBayarController.text,
+                  'nominal': nominalController.text,
+                });
+              },
+              child: const Text('Submit'),
+            ),
+          ],
+        );
+      },
     );
+
+    if (result != null) {
+      await widget.dbHelper.updatePayment({
+        'id': payment['id'],
+        'tanggal_bayar': result['tanggal_bayar'],
+        'nominal': result['nominal'],
+      });
+      _updateTotalPaymentAndStatus();
+      setState(() {});
+    }
+  }
+
+  Future<void> _showAddPaymentDialog() async {
+    final TextEditingController tanggalBayarController =
+        TextEditingController();
+    final TextEditingController nominalController = TextEditingController();
+
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Tambah Pembayaran'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: tanggalBayarController,
+                decoration: const InputDecoration(labelText: 'Tanggal Bayar'),
+                readOnly: true,
+                onTap: () => _selectDate(context, tanggalBayarController),
+              ),
+              TextFormField(
+                controller: nominalController,
+                decoration: const InputDecoration(labelText: 'Nominal'),
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context, {
+                  'tanggal_bayar': tanggalBayarController.text,
+                  'nominal': nominalController.text,
+                });
+              },
+              child: const Text('Submit'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (result != null) {
+      await widget.dbHelper.insertPayment({
+        'id_penghuni': widget.tenant['id'],
+        'tanggal_bayar': result['tanggal_bayar'],
+        'nominal': result['nominal'],
+      });
+      _updateTotalPaymentAndStatus();
+      setState(() {});
+    }
+  }
+
+  Future<void> _updateTotalPaymentAndStatus() async {
+    final payments = await _getPayments(widget.tenant['id']);
+    _totalPayment =
+        payments.fold(0, (sum, payment) => sum + int.parse(payment['nominal']));
+    final tagihan = int.parse(widget.tenant['tagihan']);
+    _statusPembayaran = _totalPayment >= tagihan ? 'Lunas' : 'Belum Lunas';
+    await widget.dbHelper
+        .updatePaymentStatus(widget.tenant['id'], _statusPembayaran);
+    widget.reloadTenants();
+    setState(() {});
   }
 
   Future<void> _submitForm() async {
@@ -554,17 +435,312 @@ class EditTenantFormState extends State<EditTenantForm> {
           'no_telp': _noTelpController.text,
           'tanggal_masuk': _tanggalMasukController.text,
           'tanggal_habis': _tanggalHabisController.text,
-          'tanggal_bayar': _tanggalBayarController.text,
           'id_kamar': int.parse(_selectedRoom!),
-          'status_pembayaran': _paymentStatus!,
+          'status_pembayaran': _statusPembayaran,
           'tagihan': _tagihanController.text,
         },
       );
 
-      if (!context.mounted) return;
+      if (!mounted) return;
       Navigator.pop(context, true);
     }
   }
+
+  Future<void> _showSaveConfirmationDialog() async {
+    final confirmSave = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Konfirmasi'),
+          content: const Text('Anda yakin ingin menyimpan perubahan?'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop(false);
+              },
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop(true);
+              },
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmSave == true) {
+      await _submitForm();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.blueGrey,
+        title: Text(
+          _isEditMode ? 'Edit Penghuni' : 'Detail Penghuni',
+          style: const TextStyle(color: Colors.white),
+        ),
+        iconTheme: const IconThemeData(color: Colors.white),
+        actions: [
+          IconButton(
+            icon: Icon(_isEditMode ? Icons.save : Icons.edit),
+            onPressed: () {
+              if (_isEditMode) {
+                _showSaveConfirmationDialog();
+              } else {
+                setState(() {
+                  _isEditMode = true;
+                });
+              }
+            },
+          ),
+          if (_isEditMode)
+            IconButton(
+              icon: const Icon(Icons.cancel),
+              onPressed: () {
+                setState(() {
+                  _initializeControllers();
+                  _isEditMode = false;
+                });
+              },
+            ),
+        ],
+      ),
+      backgroundColor: const Color(0xFFF5F5F5),
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: _isEditMode ? _buildEditForm() : _buildTenantDetails(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEditForm() {
+    return Form(
+      key: _formKey,
+      child: Column(
+        children: [
+          TextFormField(
+            controller: _nameController,
+            decoration: const InputDecoration(labelText: 'Nama'),
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Nama tidak boleh kosong';
+              }
+              return null;
+            },
+          ),
+          TextFormField(
+            controller: _emailController,
+            decoration: const InputDecoration(
+              labelText: 'Email',
+            ),
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Email tidak boleh kosong';
+              }
+              return null;
+            },
+          ),
+          TextFormField(
+            controller: _noTelpController,
+            decoration: const InputDecoration(
+              labelText: 'Nomor Telepon',
+            ),
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'No Telp tidak boleh kosong';
+              } else if (value.length < 11 || value.length > 14) {
+                return 'No Telp harus diantara 11-14';
+              }
+              return null;
+            },
+          ),
+          TextFormField(
+            controller: _tanggalMasukController,
+            decoration: const InputDecoration(
+              labelText: 'Tanggal Masuk',
+            ),
+            readOnly: true,
+            onTap: () => _selectDate(context, _tanggalMasukController),
+          ),
+          TextFormField(
+            controller: _tanggalHabisController,
+            decoration: const InputDecoration(
+              labelText: 'Tanggal Habis',
+            ),
+            readOnly: true,
+            onTap: () => _selectDate(context, _tanggalHabisController),
+          ),
+          DropdownButtonFormField<String>(
+            value: _selectedRoom,
+            items: _availableRooms.map((room) {
+              return DropdownMenuItem<String>(
+                value: room['id'].toString(),
+                child: Text(room['nomor_kamar'].toString()),
+              );
+            }).toList(),
+            onChanged: (value) {
+              setState(() {
+                _selectedRoom = value;
+              });
+            },
+            decoration: const InputDecoration(
+              labelText: 'Nomor Kamar',
+            ),
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Kamar tidak boleh kosong';
+              }
+              return null;
+            },
+          ),
+          TextFormField(
+            controller: _tagihanController,
+            decoration: const InputDecoration(
+              labelText: 'Tagihan',
+            ),
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> _getPayments(int tenantId) async {
+    return await widget.dbHelper.queryTenantPayments(tenantId);
+  }
+
+  Widget _buildTenantDetails() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Nama: ${widget.tenant['nama']}',
+              style: const TextStyle(fontSize: 18)),
+          const SizedBox(height: 8),
+          Text('Email: ${widget.tenant['email']}',
+              style: const TextStyle(fontSize: 18)),
+          const SizedBox(height: 8),
+          Text('Nomor Telepon: ${widget.tenant['no_telp']}',
+              style: const TextStyle(fontSize: 18)),
+          const SizedBox(height: 8),
+          Text('Tanggal Masuk: ${widget.tenant['tanggal_masuk']}',
+              style: const TextStyle(fontSize: 18)),
+          const SizedBox(height: 8),
+          Text('Tanggal Habis: ${widget.tenant['tanggal_habis']}',
+              style: const TextStyle(fontSize: 18)),
+          const SizedBox(height: 8),
+          Text('Tagihan: ${dbHelper.formatCurrency(widget.tenant['tagihan'])}',
+              style: const TextStyle(fontSize: 18)),
+          const SizedBox(height: 8),
+          Text('Nomor Kamar: ${widget.tenant['nomor_kamar']}',
+              style: const TextStyle(fontSize: 18)),
+          const SizedBox(height: 8),
+          Text('Status Pembayaran: $_statusPembayaran',
+              style: const TextStyle(fontSize: 18)),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              const Text('Histori Pembayaran',
+                  style: TextStyle(fontSize: 25, fontWeight: FontWeight.bold)),
+              const Spacer(),
+              IconButton(
+                icon: const Icon(
+                  Icons.add_card_sharp,
+                  size: 40,
+                ),
+                onPressed: _showAddPaymentDialog,
+              ),
+            ],
+          ),
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: _getPayments(widget.tenant['id']),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const CircularProgressIndicator();
+              } else if (snapshot.hasError) {
+                return const Text('Error loading payments');
+              } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                return const Text('Belum ada pembayaran');
+              } else {
+                List<Map<String, dynamic>> payments = snapshot.data!;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ...payments.map((payment) {
+                      return Dismissible(
+                        key: Key(payment['id'].toString()),
+                        direction: DismissDirection.endToStart,
+                        background: Container(
+                          color: Colors.red,
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: const Icon(Icons.delete, color: Colors.white),
+                        ),
+                        confirmDismiss: (direction) async {
+                          return await showDialog(
+                            context: context,
+                            builder: (context) {
+                              return AlertDialog(
+                                title: const Text('Konfirmasi Hapus'),
+                                content: const Text(
+                                    'Anda yakin ingin menghapus pembayaran ini?'),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () {
+                                      Navigator.of(context).pop(false);
+                                    },
+                                    child: const Text('Cancel'),
+                                  ),
+                                  ElevatedButton(
+                                    onPressed: () {
+                                      Navigator.of(context).pop(true);
+                                    },
+                                    child: const Text('OK'),
+                                  ),
+                                ],
+                              );
+                            },
+                          );
+                        },
+                        onDismissed: (direction) async {
+                          await widget.dbHelper.deletePayment(payment['id']);
+                          _updateTotalPaymentAndStatus();
+                          setState(() {});
+                        },
+                        child: Card(
+                          color: Colors.blueGrey[100],
+                          elevation: 5,
+                          child: ListTile(
+                            title: Text(payment['tanggal_bayar']),
+                            subtitle: Text('Nominal: ${dbHelper.formatCurrency(payment['nominal'].toString())}'),
+                            onTap: () => _showEditPaymentDialog(payment),
+                          ),
+                        ),
+                      );
+                    }),
+                    const SizedBox(height: 16.0),
+                    Text(
+                      'Total Pembayaran: ${dbHelper.formatCurrency(_totalPayment.toString())}',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                );
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
 }
-
-
