@@ -1,8 +1,8 @@
-// list_penghuni.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:aplikasi_kontrakan/database_helper.dart';
 import 'package:aplikasi_kontrakan/tambah_penghuni.dart';
+import 'package:intl/intl.dart';
 
 class ListPenghuni extends StatefulWidget {
   const ListPenghuni({super.key});
@@ -83,17 +83,14 @@ class ListPenghuniState extends State<ListPenghuni> {
       ),
       backgroundColor: const Color(0xFFF5F5F5),
       body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: dbHelper.queryAllTenantsWithRoomNumbers(),
+        future: dbHelper.querySemuaPenghuniDenganKamar(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           } else if (snapshot.hasError) {
             return Center(child: Text('Error: ${snapshot.error}'));
           } else {
-            // Create a modifiable copy of the tenants list
             var tenants = List<Map<String, dynamic>>.from(snapshot.data ?? []);
-
-            // Sorting tenants based on the selected criteria
             tenants.sort((a, b) {
               int compare;
               if (_sortBy == 'nomor_kamar') {
@@ -137,7 +134,7 @@ class ListPenghuniState extends State<ListPenghuni> {
                               ElevatedButton(
                                 onPressed: () async {
                                   Navigator.of(context).pop(true);
-                                  await dbHelper.moveTenantToHistory(
+                                  await dbHelper.movePenghuniKeHistoriPenghuni(
                                       tenants[index]['id']);
                                   _loadTenants();
                                 },
@@ -149,7 +146,8 @@ class ListPenghuniState extends State<ListPenghuni> {
                       );
                     },
                     onDismissed: (direction) async {
-                      await dbHelper.moveTenantToHistory(tenants[index]['id']);
+                      await dbHelper
+                          .movePenghuniKeHistoriPenghuni(tenants[index]['id']);
                       _loadTenants();
                     },
                     child: Card(
@@ -163,11 +161,13 @@ class ListPenghuniState extends State<ListPenghuni> {
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                                '${tenants[index]['tanggal_masuk']} - ${tenants[index]['tanggal_habis']}'),
+                            if (tenants[index]['tanggal_masuk'] != '-' ||
+                                tenants[index]['tanggal_habis'] != '-')
+                              Text(
+                                  '${tenants[index]['tanggal_masuk']} - ${tenants[index]['tanggal_habis']}'),
                             Text('Nomor Telepon: ${tenants[index]['no_telp']}'),
                             Text(
-                                'Tagihan: ${dbHelper.formatCurrency(tenants[index]['tagihan'])}'),
+                                'Total Pembayaran: ${dbHelper.formatCurrency(tenants[index]['total_pembayaran'])}'),
                           ],
                         ),
                         onTap: () {
@@ -185,9 +185,6 @@ class ListPenghuniState extends State<ListPenghuni> {
     );
   }
 
-
-
-
   Future<void> _showAddTenantForm(BuildContext context) async {
     final result = await Navigator.push(
       context,
@@ -204,8 +201,11 @@ class ListPenghuniState extends State<ListPenghuni> {
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-          builder: (context) =>
-              EditTenantForm(dbHelper: dbHelper, tenant: tenant, reloadTenants: _loadTenants,)),
+          builder: (context) => EditTenantForm(
+                dbHelper: dbHelper,
+                tenant: tenant,
+                reloadTenants: _loadTenants,
+              )),
     );
     if (result == true) {
       _loadTenants();
@@ -218,8 +218,12 @@ class EditTenantForm extends StatefulWidget {
   final Map<String, dynamic> tenant;
   final Function reloadTenants;
 
-  const EditTenantForm(
-      {super.key, required this.dbHelper, required this.tenant, required this.reloadTenants,});
+  const EditTenantForm({
+    super.key,
+    required this.dbHelper,
+    required this.tenant,
+    required this.reloadTenants,
+  });
 
   @override
   EditTenantFormState createState() => EditTenantFormState();
@@ -231,14 +235,13 @@ class EditTenantFormState extends State<EditTenantForm> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _noTelpController = TextEditingController();
-  final TextEditingController _tanggalMasukController = TextEditingController();
-  final TextEditingController _tanggalHabisController = TextEditingController();
-  final TextEditingController _tagihanController = TextEditingController();
   String? _selectedRoom;
   List<Map<String, dynamic>> _availableRooms = [];
   bool _isEditMode = false;
   int _totalPayment = 0;
   String _statusPembayaran = 'Belum Lunas';
+  String _tanggalMasuk = '-';
+  String _tanggalHabis = '-';
 
   @override
   void initState() {
@@ -252,9 +255,6 @@ class EditTenantFormState extends State<EditTenantForm> {
     _nameController.text = widget.tenant['nama'];
     _emailController.text = widget.tenant['email'];
     _noTelpController.text = widget.tenant['no_telp'];
-    _tanggalMasukController.text = widget.tenant['tanggal_masuk'];
-    _tanggalHabisController.text = widget.tenant['tanggal_habis'];
-    _tagihanController.text = widget.tenant['tagihan'] ?? '';
     _selectedRoom = widget.tenant['nomor_kamar'].toString();
   }
 
@@ -292,36 +292,117 @@ class EditTenantFormState extends State<EditTenantForm> {
       },
     );
     if (picked != null) {
+      String formattedDate = DateFormat('dd-MM-yyyy').format(picked);
       setState(() {
-        controller.text = picked.toLocal().toString().split(' ')[0];
+        controller.text = formattedDate;
       });
     }
   }
+
   Future<void> _showEditPaymentDialog(Map<String, dynamic> payment) async {
-    final TextEditingController tanggalBayarController = TextEditingController(text: payment['tanggal_bayar']);
-    final TextEditingController nominalController = TextEditingController(text: payment['nominal']);
+    final formKey = GlobalKey<FormState>();
+    final TextEditingController tanggalMasukController =
+        TextEditingController(text: payment['tanggal_masuk']);
+    final TextEditingController tanggalHabisController =
+        TextEditingController(text: payment['tanggal_habis']);
+    final TextEditingController tagihanController =
+        TextEditingController(text: payment['tagihan']);
+    final TextEditingController statusPembayaranController =
+        TextEditingController(text: payment['status_pembayaran']);
 
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (context) {
         return AlertDialog(
           title: const Text('Edit Pembayaran'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: tanggalBayarController,
-                decoration: const InputDecoration(labelText: 'Tanggal Bayar'),
-                readOnly: true,
-                onTap: () => _selectDate(context, tanggalBayarController),
+          content: Form(
+            key: formKey,
+            child: SizedBox(
+              width: 400,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: tanggalMasukController,
+                          decoration:
+                              const InputDecoration(labelText: 'Tanggal Masuk'),
+                          readOnly: true,
+                          onTap: () =>
+                              _selectDate(context, tanggalMasukController),
+                          validator: (value) {
+                            if (value!.isEmpty) {
+                              return 'Pilih tanggal masuk';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                      const SizedBox(
+                        width: 10,
+                      ),
+                      Expanded(
+                        child: TextFormField(
+                          controller: tanggalHabisController,
+                          decoration:
+                              const InputDecoration(labelText: 'Tanggal Habis'),
+                          readOnly: true,
+                          onTap: () =>
+                              _selectDate(context, tanggalHabisController),
+                          validator: (value) {
+                            if (value!.isEmpty) {
+                              return 'Pilih tanggal habis';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  TextFormField(
+                    controller: tagihanController,
+                    decoration: const InputDecoration(labelText: 'Tagihan'),
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Tagihan tidak boleh kosong';
+                      }
+                      return null;
+                    },
+                  ),
+                  DropdownButtonFormField<String>(
+                    value: statusPembayaranController.text,
+                    decoration:
+                        const InputDecoration(labelText: 'Status Pembayaran'),
+                    onChanged: (String? newValue) {
+                      setState(() {
+                        statusPembayaranController.text = newValue!;
+                      });
+                    },
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'Belum Lunas',
+                        child: Text('Belum Lunas'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'Lunas',
+                        child: Text('Lunas'),
+                      ),
+                    ],
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Pilih status pembayaran';
+                      }
+                      return null;
+                    },
+                  ),
+                ],
               ),
-              TextFormField(
-                controller: nominalController,
-                decoration: const InputDecoration(labelText: 'Nominal'),
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              ),
-            ],
+            ),
           ),
           actions: [
             TextButton(
@@ -329,11 +410,15 @@ class EditTenantFormState extends State<EditTenantForm> {
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context, {
-                  'tanggal_bayar': tanggalBayarController.text,
-                  'nominal': nominalController.text,
-                });
+              onPressed: () async {
+                if (formKey.currentState!.validate()) {
+                  Navigator.pop(context, {
+                    'tanggal_masuk': tanggalMasukController.text,
+                    'tanggal_habis': tanggalHabisController.text,
+                    'tagihan': tagihanController.text,
+                    'status_pembayaran': statusPembayaranController.text,
+                  });
+                }
               },
               child: const Text('Submit'),
             ),
@@ -341,12 +426,13 @@ class EditTenantFormState extends State<EditTenantForm> {
         );
       },
     );
-
     if (result != null) {
-      await widget.dbHelper.updatePayment({
+      await widget.dbHelper.updatePembayaranPenghuni({
         'id': payment['id'],
-        'tanggal_bayar': result['tanggal_bayar'],
-        'nominal': result['nominal'],
+        'tanggal_masuk': result['tanggal_masuk'],
+        'tanggal_habis': result['tanggal_habis'],
+        'tagihan': result['tagihan'],
+        'status_pembayaran': result['status_pembayaran'],
       });
       _updateTotalPaymentAndStatus();
       setState(() {});
@@ -354,31 +440,112 @@ class EditTenantFormState extends State<EditTenantForm> {
   }
 
   Future<void> _showAddPaymentDialog() async {
-    final TextEditingController tanggalBayarController =
-        TextEditingController();
-    final TextEditingController nominalController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
 
-    final result = await showDialog<Map<String, dynamic>>(
+    final TextEditingController tanggalMasukController =
+        TextEditingController();
+    final TextEditingController tanggalHabisController =
+        TextEditingController();
+    final TextEditingController tagihanController = TextEditingController();
+    final TextEditingController statusPembayaranController =
+        TextEditingController();
+
+    showDialog<Map<String, dynamic>>(
       context: context,
       builder: (context) {
         return AlertDialog(
           title: const Text('Tambah Pembayaran'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: tanggalBayarController,
-                decoration: const InputDecoration(labelText: 'Tanggal Bayar'),
-                readOnly: true,
-                onTap: () => _selectDate(context, tanggalBayarController),
+          content: Form(
+            key: formKey,
+            child: SizedBox(
+              width: 400,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: tanggalMasukController,
+                          decoration: const InputDecoration(
+                            labelText: 'Tanggal Masuk',
+                          ),
+                          readOnly: true,
+                          onTap: () =>
+                              _selectDate(context, tanggalMasukController),
+                          validator: (value) {
+                            if (value!.isEmpty) {
+                              return 'Pilih tanggal masuk';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                      const SizedBox(
+                        width: 10,
+                      ),
+                      Expanded(
+                        child: TextFormField(
+                          controller: tanggalHabisController,
+                          decoration: const InputDecoration(
+                            labelText: 'Tanggal Habis',
+                          ),
+                          readOnly: true,
+                          onTap: () =>
+                              _selectDate(context, tanggalHabisController),
+                          validator: (value) {
+                            if (value!.isEmpty) {
+                              return 'Pilih tanggal habis';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  TextFormField(
+                    controller: tagihanController,
+                    decoration: const InputDecoration(labelText: 'Tagihan'),
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Tagihan tidak boleh kosong';
+                      }
+                      return null;
+                    },
+                  ),
+                  DropdownButtonFormField<String>(
+                    value: null,
+                    decoration: const InputDecoration(
+                      labelText: 'Status Pembayaran',
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'Belum Lunas',
+                        child: Text('Belum Lunas'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'Lunas',
+                        child: Text('Lunas'),
+                      ),
+                    ],
+                    onChanged: (String? newValue) {
+                      setState(() {
+                        statusPembayaranController.text = newValue!;
+                      });
+                    },
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Pilih status pembayaran';
+                      }
+                      return null;
+                    },
+                  ),
+                ],
               ),
-              TextFormField(
-                controller: nominalController,
-                decoration: const InputDecoration(labelText: 'Nominal'),
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              ),
-            ],
+            ),
           ),
           actions: [
             TextButton(
@@ -386,11 +553,20 @@ class EditTenantFormState extends State<EditTenantForm> {
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context, {
-                  'tanggal_bayar': tanggalBayarController.text,
-                  'nominal': nominalController.text,
-                });
+              onPressed: () async {
+                if (formKey.currentState!.validate()) {
+                  await widget.dbHelper.insertPembayaranPenghuni({
+                    'id_penghuni': widget.tenant['id'],
+                    'tanggal_masuk': tanggalMasukController.text,
+                    'tanggal_habis': tanggalHabisController.text,
+                    'tagihan': tagihanController.text,
+                    'status_pembayaran': statusPembayaranController.text,
+                  });
+                  _updateTotalPaymentAndStatus();
+                  if (!context.mounted) return;
+                  Navigator.pop(context);
+                  setState(() {});
+                }
               },
               child: const Text('Submit'),
             ),
@@ -398,26 +574,45 @@ class EditTenantFormState extends State<EditTenantForm> {
         );
       },
     );
-
-    if (result != null) {
-      await widget.dbHelper.insertPayment({
-        'id_penghuni': widget.tenant['id'],
-        'tanggal_bayar': result['tanggal_bayar'],
-        'nominal': result['nominal'],
-      });
-      _updateTotalPaymentAndStatus();
-      setState(() {});
-    }
   }
 
   Future<void> _updateTotalPaymentAndStatus() async {
     final payments = await _getPayments(widget.tenant['id']);
+    DateTime? earliestDate;
+    DateTime? farthestDate;
+
+    for (final payment in payments) {
+      final tanggalMasukDate =
+          DateFormat('dd-MM-yyyy').parse(payment['tanggal_masuk'] as String);
+      final tanggalHabisDate =
+          DateFormat('dd-MM-yyyy').parse(payment['tanggal_habis'] as String);
+
+      if (earliestDate == null || tanggalMasukDate.isBefore(earliestDate)) {
+        earliestDate = tanggalMasukDate;
+      }
+
+      if (farthestDate == null || tanggalHabisDate.isAfter(farthestDate)) {
+        farthestDate = tanggalHabisDate;
+      }
+    }
+
+    _tanggalMasuk = earliestDate != null
+        ? DateFormat('dd-MM-yyyy').format(earliestDate)
+        : '-';
+    _tanggalHabis = farthestDate != null
+        ? DateFormat('dd-MM-yyyy').format(farthestDate)
+        : '-';
+
+    _statusPembayaran =
+        payments.any((payment) => payment['status_pembayaran'] == 'Belum Lunas')
+            ? 'Belum Lunas'
+            : 'Lunas';
     _totalPayment =
-        payments.fold(0, (sum, payment) => sum + int.parse(payment['nominal']));
-    final tagihan = int.parse(widget.tenant['tagihan']);
-    _statusPembayaran = _totalPayment >= tagihan ? 'Lunas' : 'Belum Lunas';
-    await widget.dbHelper
-        .updatePaymentStatus(widget.tenant['id'], _statusPembayaran);
+        payments.fold(0, (sum, payment) => sum + int.parse(payment['tagihan']));
+
+    await widget.dbHelper.updateTanggalAndBayar(widget.tenant['id'],
+        _statusPembayaran, _totalPayment, _tanggalMasuk, _tanggalHabis);
+
     widget.reloadTenants();
     setState(() {});
   }
@@ -426,18 +621,18 @@ class EditTenantFormState extends State<EditTenantForm> {
     if (_formKey.currentState!.validate()) {
       int oldRoomId = widget.tenant['id_kamar'];
 
-      await widget.dbHelper.updateTenantWithRoomChange(
+      await widget.dbHelper.updatePenghuniDenganGantiKamar(
         widget.tenant['id'],
         oldRoomId,
         {
           'nama': _nameController.text,
           'email': _emailController.text,
           'no_telp': _noTelpController.text,
-          'tanggal_masuk': _tanggalMasukController.text,
-          'tanggal_habis': _tanggalHabisController.text,
+          'tanggal_masuk': widget.tenant['tanggal_masuk'],
+          'tanggal_habis': widget.tenant['tanggal_habis'],
           'id_kamar': int.parse(_selectedRoom!),
           'status_pembayaran': _statusPembayaran,
-          'tagihan': _tagihanController.text,
+          'total_pembayaran': _totalPayment,
         },
       );
 
@@ -564,22 +759,6 @@ class EditTenantFormState extends State<EditTenantForm> {
               return null;
             },
           ),
-          TextFormField(
-            controller: _tanggalMasukController,
-            decoration: const InputDecoration(
-              labelText: 'Tanggal Masuk',
-            ),
-            readOnly: true,
-            onTap: () => _selectDate(context, _tanggalMasukController),
-          ),
-          TextFormField(
-            controller: _tanggalHabisController,
-            decoration: const InputDecoration(
-              labelText: 'Tanggal Habis',
-            ),
-            readOnly: true,
-            onTap: () => _selectDate(context, _tanggalHabisController),
-          ),
           DropdownButtonFormField<String>(
             value: _selectedRoom,
             items: _availableRooms.map((room) {
@@ -603,21 +782,13 @@ class EditTenantFormState extends State<EditTenantForm> {
               return null;
             },
           ),
-          TextFormField(
-            controller: _tagihanController,
-            decoration: const InputDecoration(
-              labelText: 'Tagihan',
-            ),
-            keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-          ),
         ],
       ),
     );
   }
 
   Future<List<Map<String, dynamic>>> _getPayments(int tenantId) async {
-    return await widget.dbHelper.queryTenantPayments(tenantId);
+    return await widget.dbHelper.queryPembayaranPenghuni(tenantId);
   }
 
   Widget _buildTenantDetails() {
@@ -634,13 +805,14 @@ class EditTenantFormState extends State<EditTenantForm> {
           Text('Nomor Telepon: ${widget.tenant['no_telp']}',
               style: const TextStyle(fontSize: 18)),
           const SizedBox(height: 8),
-          Text('Tanggal Masuk: ${widget.tenant['tanggal_masuk']}',
+          Text('Tanggal Masuk: $_tanggalMasuk',
               style: const TextStyle(fontSize: 18)),
           const SizedBox(height: 8),
-          Text('Tanggal Habis: ${widget.tenant['tanggal_habis']}',
+          Text('Tanggal Habis: $_tanggalHabis',
               style: const TextStyle(fontSize: 18)),
           const SizedBox(height: 8),
-          Text('Tagihan: ${dbHelper.formatCurrency(widget.tenant['tagihan'])}',
+          Text(
+              'Total Pembayaran: ${dbHelper.formatCurrency(_totalPayment.toString())}',
               style: const TextStyle(fontSize: 18)),
           const SizedBox(height: 8),
           Text('Nomor Kamar: ${widget.tenant['nomor_kamar']}',
@@ -714,26 +886,32 @@ class EditTenantFormState extends State<EditTenantForm> {
                           );
                         },
                         onDismissed: (direction) async {
-                          await widget.dbHelper.deletePayment(payment['id']);
+                          await widget.dbHelper
+                              .deletePembayaranPenghuni(payment['id']);
                           _updateTotalPaymentAndStatus();
                           setState(() {});
                         },
                         child: Card(
-                          color: Colors.blueGrey[100],
+                          color: payment['status_pembayaran'] == 'Lunas'
+                              ? Colors.blueGrey[100]
+                              : Colors.amber[200],
                           elevation: 5,
                           child: ListTile(
-                            title: Text(payment['tanggal_bayar']),
-                            subtitle: Text('Nominal: ${dbHelper.formatCurrency(payment['nominal'].toString())}'),
+                            title: Text(
+                                '${payment['tanggal_masuk']} - ${payment['tanggal_habis']}'),
+                            subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                      'Tagihan: ${dbHelper.formatCurrency(payment['tagihan'].toString())}'),
+                                  Text(
+                                      'Status Pembayaran: ${payment['status_pembayaran']}'),
+                                ]),
                             onTap: () => _showEditPaymentDialog(payment),
                           ),
                         ),
                       );
                     }),
-                    const SizedBox(height: 16.0),
-                    Text(
-                      'Total Pembayaran: ${dbHelper.formatCurrency(_totalPayment.toString())}',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
                   ],
                 );
               }

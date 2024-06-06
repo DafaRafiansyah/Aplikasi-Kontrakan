@@ -10,9 +10,9 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return  MaterialApp(
+    return MaterialApp(
       theme: ThemeData(
-        primaryColor: Colors.blueGrey,
+        primaryColor: Colors.white,
         inputDecorationTheme: const InputDecorationTheme(
           labelStyle: TextStyle(color: Colors.black),
           focusedBorder: UnderlineInputBorder(
@@ -20,9 +20,9 @@ class MyApp extends StatelessWidget {
           ),
         ),
         textSelectionTheme: TextSelectionThemeData(
-          cursorColor: Colors.blueGrey, // Set the cursor color globally
-          selectionColor: Colors.blueGrey.withOpacity(0.5), // Selection color
-          selectionHandleColor: Colors.blueGrey, // Handle color
+          cursorColor: Colors.blueGrey,
+          selectionColor: Colors.blueGrey.withOpacity(0.5),
+          selectionHandleColor: Colors.blueGrey,
         ),
         textButtonTheme: TextButtonThemeData(
           style: TextButton.styleFrom(

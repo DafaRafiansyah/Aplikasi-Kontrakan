@@ -20,7 +20,10 @@ class DaftarKamarState extends State<DaftarKamar> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Daftar Kamar',style: TextStyle(color: Colors.white),),
+        title: const Text(
+          'Daftar Kamar',
+          style: TextStyle(color: Colors.white),
+        ),
         backgroundColor: Colors.blueGrey,
       ),
       backgroundColor: const Color(0xFFF5F5F5),
@@ -50,11 +53,20 @@ class DaftarKamarState extends State<DaftarKamar> {
 
   Widget _buildLantaiSection(String title, List<Map<String, dynamic>> rooms) {
     return ExpansionTile(
-      title: Text(title,style: const TextStyle(fontSize: 20,fontWeight: FontWeight.bold),),
+      title: Text(
+        title,
+        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+      ),
       children: rooms.map((room) {
-        final isInteractive = room['status'] == 'kosong' || room['status'] == 'dalam_perawatan';
-        final text = isInteractive ? room['status'] == 'kosong' ? 'Status: Kosong' :'Status: Dalam Perawatan' :'Ditempati oleh: ${room['status']}';
-        final cardColor= isInteractive ? Colors.blueGrey[100] : Colors.amber[200];
+        final isInteractive =
+            room['status'] == 'kosong' || room['status'] == 'dalam_perawatan';
+        final text = isInteractive
+            ? room['status'] == 'kosong'
+                ? 'Status: Kosong'
+                : 'Status: Dalam Perawatan'
+            : 'Ditempati oleh: ${room['status']}';
+        final cardColor =
+            isInteractive ? Colors.blueGrey[100] : Colors.amber[200];
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
           child: Card(
@@ -69,7 +81,9 @@ class DaftarKamarState extends State<DaftarKamar> {
                 text,
                 style: const TextStyle(color: Colors.black),
               ),
-              onTap: isInteractive ? () => _showRoomOptions(room['id'], room['status']) : null,
+              onTap: isInteractive
+                  ? () => _showRoomOptions(room['id'], room['status'])
+                  : null,
               enabled: isInteractive,
             ),
           ),
@@ -77,8 +91,6 @@ class DaftarKamarState extends State<DaftarKamar> {
       }).toList(),
     );
   }
-
-
 
   void _showRoomOptions(int roomId, String currentStatus) {
     showDialog(
@@ -95,28 +107,35 @@ class DaftarKamarState extends State<DaftarKamar> {
                   color: Colors.blueGrey,
                 ),
                 child: ListTile(
-                  title: const Text('Dalam Perawatan',style: TextStyle(color: Colors.white),),
+                  title: const Text(
+                    'Dalam Perawatan',
+                    style: TextStyle(color: Colors.white),
+                  ),
                   onTap: () {
                     _updateRoomStatus(roomId, 'dalam_perawatan');
                     Navigator.pop(context);
                   },
                 ),
               ),
-              const SizedBox(height: 10,),
+              const SizedBox(
+                height: 10,
+              ),
               Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(8.0),
                   color: Colors.blueGrey,
                 ),
                 child: ListTile(
-                  title: const Text('Kosong',style: TextStyle(color: Colors.white),),
+                  title: const Text(
+                    'Kosong',
+                    style: TextStyle(color: Colors.white),
+                  ),
                   onTap: () {
                     _updateRoomStatus(roomId, 'kosong');
                     Navigator.pop(context);
                   },
                 ),
               ),
-
             ],
           ),
           actions: [
@@ -134,5 +153,4 @@ class DaftarKamarState extends State<DaftarKamar> {
       },
     );
   }
-
 }

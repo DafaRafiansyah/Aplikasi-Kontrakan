@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
+
   factory DatabaseHelper() => _instance;
   static Database? _database;
 
@@ -24,11 +25,13 @@ class DatabaseHelper {
       onCreate: _onCreate,
     );
   }
+
   String formatCurrency(String value) {
     if (value.isEmpty) return '';
     final formatter = NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ');
     return formatter.format(int.parse(value));
   }
+
   Future _onCreate(Database db, int version) async {
     await db.execute('''
       CREATE TABLE kamar (
@@ -46,9 +49,9 @@ class DatabaseHelper {
         email TEXT NOT NULL,
         no_telp TEXT NOT NULL,
         status_pembayaran TEXT NOT NULL,
-        tagihan TEXT NOT NULL,
+        total_pembayaran TEXT NOT NULL,
         tanggal_masuk TEXT NOT NULL,
-        tanggal_habis TEXT,
+        tanggal_habis TEXT NOT NULL,
         is_history BOOLEAN NOT NULL DEFAULT 0,
         FOREIGN KEY (id_kamar) REFERENCES kamar (id)
       )
@@ -58,8 +61,10 @@ class DatabaseHelper {
       CREATE TABLE pembayaran (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         id_penghuni INTEGER  NOT NULL,
-        nominal TEXT NOT NULL,
-        tanggal_bayar TEXT NOT NULL,
+        tagihan TEXT NOT NULL,
+        tanggal_masuk TEXT NOT NULL,
+        tanggal_habis TEXT NOT NULL,
+        status_pembayaran TEXT NOT NULL,
         FOREIGN KEY (id_penghuni) REFERENCES penghuni (id)
       )
     ''');
@@ -75,67 +80,66 @@ class DatabaseHelper {
 
     // Insert preset data
     for (int i = 1; i <= 8; i++) {
-      await db.insert('kamar', {'nomor_kamar': i, 'lantai': 1, 'status': 'kosong'});
+      await db
+          .insert('kamar', {'nomor_kamar': i, 'lantai': 1, 'status': 'kosong'});
     }
     for (int i = 9; i <= 16; i++) {
-      await db.insert('kamar', {'nomor_kamar': i, 'lantai': 2, 'status': 'kosong'});
+      await db
+          .insert('kamar', {'nomor_kamar': i, 'lantai': 2, 'status': 'kosong'});
     }
   }
 
-  Future<List<Map<String, dynamic>>> queryAllRooms() async {
+  // Operations untuk Penghuni
+  Future<int> insertPenghuni(Map<String, dynamic> row) async {
     Database db = await database;
-    return await db.query('kamar');
+    return await db.insert('penghuni', row);
   }
-  Future<int> insertPayment(Map<String, dynamic> payment) async {
-    var dbClient = await database;
-    return await dbClient.insert('pembayaran', payment);
-  }
-  // CRUD operations for rooms
-  Future<int> updateRoomStatus(int id, String status) async {
-    Database db = await database;
+
+  Future<int> updateTanggalAndBayar(int idPenghuni, String statusPembayaran,
+      int totalPembayaran, String tanggalMasuk, String tanggalHabis) async {
+    final db = await database;
     return await db.update(
-      'kamar',
-      {'status': status},
+      'penghuni',
+      {
+        'status_pembayaran': statusPembayaran,
+        'total_pembayaran': totalPembayaran,
+        'tanggal_masuk': tanggalMasuk,
+        'tanggal_habis': tanggalHabis,
+      },
       where: 'id = ?',
-      whereArgs: [id],
-    );
-  }
-  Future<int> deletePayment(int paymentId) async {
-    Database db = await database;
-    return await db.delete(
-      'pembayaran',
-      where: 'id = ?',
-      whereArgs: [paymentId],
-    );
-  }
-  Future<int> updatePayment(Map<String, dynamic> payment) async {
-    var dbClient = await database;
-    return await dbClient.update(
-      'pembayaran',
-      payment,
-      where: 'id = ?',
-      whereArgs: [payment['id']],
+      whereArgs: [idPenghuni],
     );
   }
 
-  Future<void> updateTenantWithRoomChange(int tenantId, int oldRoomId, Map<String, dynamic> row) async {
+  Future<int> updateStatusPembayaran(
+      int idPenghuni, String statusPembayaran) async {
+    final db = await database;
+    return await db.update(
+      'penghuni',
+      {
+        'status_pembayaran': statusPembayaran,
+      },
+      where: 'id = ?',
+      whereArgs: [idPenghuni],
+    );
+  }
+
+  Future<void> updatePenghuniDenganGantiKamar(
+      int tenantId, int oldRoomId, Map<String, dynamic> row) async {
     Database db = await database;
     await db.transaction((txn) async {
-      // Set the old room's status to 'kosong'
       await txn.update(
         'kamar',
         {'status': 'kosong'},
         where: 'id = ?',
         whereArgs: [oldRoomId],
       );
-      // Update the tenant's record
       await txn.update(
         'penghuni',
         row,
         where: 'id = ?',
         whereArgs: [tenantId],
       );
-      // Set the new room's status to 'occupied'
       await txn.update(
         'kamar',
         {'status': row['nama']},
@@ -144,17 +148,8 @@ class DatabaseHelper {
       );
     });
   }
-  Future<List<Map<String, dynamic>>> queryTenantPayments(int tenantId) async {
-    final db = await database;
-    return await db.query(
-      'pembayaran',
-      where: 'id_penghuni = ?',
-      whereArgs: [tenantId],
-    );
-  }
 
-
-  Future<List<Map<String, dynamic>>> queryAllTenantsWithRoomNumbers() async {
+  Future<List<Map<String, dynamic>>> querySemuaPenghuniDenganKamar() async {
     Database db = await database;
     return await db.rawQuery('''
       SELECT 
@@ -165,7 +160,7 @@ class DatabaseHelper {
         penghuni.id_kamar, 
         penghuni.tanggal_masuk, 
         penghuni.tanggal_habis, 
-        penghuni.tagihan, 
+        penghuni.total_pembayaran, 
         penghuni.status_pembayaran, 
         kamar.nomor_kamar 
       FROM 
@@ -177,32 +172,98 @@ class DatabaseHelper {
     ''');
   }
 
-  // CRUD operations for tenants
-  Future<int> insertTenant(Map<String, dynamic> row) async {
-    Database db = await database;
-    return await db.insert('penghuni', row);
-  }
-  Future<int> updatePaymentStatus(int idPenghuni, String statusPembayaran) async {
+  Future<void> movePenghuniKeHistoriPenghuni(int tenantId) async {
     final db = await database;
-    return await db.update(
+
+    // Update status 'isHistory' di penghuni jadi true
+    await db.update(
       'penghuni',
-      {'status_pembayaran': statusPembayaran},
+      {'is_history': 1},
       where: 'id = ?',
-      whereArgs: [idPenghuni],
+      whereArgs: [tenantId],
     );
-  }
-  Future<List<Map<String, dynamic>>> queryAllTenants() async {
-    Database db = await database;
-    return await db.query('penghuni');
+
+    // Get informasi penghuni
+    final tenant = await db.query(
+      'penghuni',
+      where: 'id = ?',
+      whereArgs: [tenantId],
+      limit: 1,
+    );
+
+    if (tenant.isNotEmpty) {
+      final int idKamar = tenant[0]['id_kamar'] as int;
+      final String tanggalKeluar = tenant[0]['tanggal_habis'] as String;
+
+      // Update status kamar jadi 'kosong'
+      await updateRoomStatus(idKamar, 'kosong');
+
+      // Insert ke histori penghuni
+      await insertHistoriPenghuni({
+        'id_penghuni': tenantId,
+        'tanggal_keluar': tanggalKeluar,
+      });
+    }
   }
 
-  // CRUD operations for tenant history
-  Future<int> insertTenantHistory(Map<String, dynamic> row) async {
+  // Operations untuk Kamar
+  Future<int> updateRoomStatus(int id, String status) async {
+    Database db = await database;
+    return await db.update(
+      'kamar',
+      {'status': status},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> queryAllRooms() async {
+    Database db = await database;
+    return await db.query('kamar');
+  }
+
+  // Operations untuk Pembayaran Penghuni
+  Future<int> insertPembayaranPenghuni(Map<String, dynamic> payment) async {
+    var dbClient = await database;
+    return await dbClient.insert('pembayaran', payment);
+  }
+
+  Future<int> deletePembayaranPenghuni(int paymentId) async {
+    Database db = await database;
+    return await db.delete(
+      'pembayaran',
+      where: 'id = ?',
+      whereArgs: [paymentId],
+    );
+  }
+
+  Future<int> updatePembayaranPenghuni(Map<String, dynamic> payment) async {
+    var dbClient = await database;
+    return await dbClient.update(
+      'pembayaran',
+      payment,
+      where: 'id = ?',
+      whereArgs: [payment['id']],
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> queryPembayaranPenghuni(
+      int tenantId) async {
+    final db = await database;
+    return await db.query(
+      'pembayaran',
+      where: 'id_penghuni = ?',
+      whereArgs: [tenantId],
+    );
+  }
+
+  // Operations untuk riwayat penghuni
+  Future<int> insertHistoriPenghuni(Map<String, dynamic> row) async {
     Database db = await database;
     return await db.insert('riwayat_penghuni', row);
   }
 
-  Future<List<Map<String, dynamic>>> queryTenantHistory() async {
+  Future<List<Map<String, dynamic>>> queryHistoriPenghuni() async {
     Database db = await database;
     return await db.rawQuery('''
     SELECT 
@@ -213,7 +274,7 @@ class DatabaseHelper {
         penghuni.id_kamar, 
         penghuni.tanggal_masuk, 
         riwayat_penghuni.tanggal_keluar, 
-        penghuni.tagihan, 
+        penghuni.total_pembayaran, 
         penghuni.status_pembayaran, 
         kamar.nomor_kamar 
     FROM 
@@ -225,38 +286,5 @@ class DatabaseHelper {
     WHERE 
         penghuni.is_history = 1
   ''');
-  }
-
-  Future<void> moveTenantToHistory(int tenantId) async {
-    final db = await database;
-
-    // Update tenant's `isHistory` status
-    await db.update(
-      'penghuni',
-      {'is_history': 1},
-      where: 'id = ?',
-      whereArgs: [tenantId],
-    );
-
-    // Get tenant's information
-    final tenant = await db.query(
-      'penghuni',
-      where: 'id = ?',
-      whereArgs: [tenantId],
-      limit: 1,
-    );
-
-    if (tenant.isNotEmpty) {
-      final int idKamar = tenant[0]['id_kamar']as int;
-
-      // Update the room status to 'kosong'
-      await updateRoomStatus(idKamar, 'kosong');
-
-      // Insert tenant history record
-      await insertTenantHistory({
-        'id_penghuni': tenantId,
-        'tanggal_keluar': DateFormat('yyyy-MM-dd').format(DateTime.now()),
-      });
-    }
   }
 }

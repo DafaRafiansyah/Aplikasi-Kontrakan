@@ -12,7 +12,7 @@ class NavMenu extends StatefulWidget {
 
 class _NavMenuState extends State<NavMenu> {
   int myCurrentIndex = 0;
-  List pages =  [const DaftarKamar(), const ListPenghuni(), Histori()];
+  List pages = [const DaftarKamar(), const ListPenghuni(), const Histori()];
 
   @override
   Widget build(BuildContext context) {
@@ -45,5 +45,4 @@ class _NavMenuState extends State<NavMenu> {
       body: pages[myCurrentIndex],
     );
   }
-
 }

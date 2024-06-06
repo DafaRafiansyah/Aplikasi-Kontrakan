@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:aplikasi_kontrakan/database_helper.dart';
 
-
 class Histori extends StatefulWidget {
   const Histori({super.key});
 
@@ -14,6 +13,10 @@ class HistoriState extends State<Histori> {
 
   String _sortBy = 'nomor_kamar';
   bool _ascending = true;
+
+  Future<void> _loadTenants() async {
+    setState(() {});
+  }
 
   void _sortHistories(String sortBy, bool ascending) {
     setState(() {
@@ -68,17 +71,15 @@ class HistoriState extends State<Histori> {
       ),
       backgroundColor: const Color(0xFFF5F5F5),
       body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: dbHelper.queryTenantHistory(),
+        future: dbHelper.queryHistoriPenghuni(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           } else if (snapshot.hasError) {
             return Center(child: Text('Error: ${snapshot.error}'));
           } else {
-            // Create a modifiable copy of the histories list
-            var histories = List<Map<String, dynamic>>.from(snapshot.data ?? []);
-
-            // Sorting histories based on the selected criteria
+            var histories =
+                List<Map<String, dynamic>>.from(snapshot.data ?? []);
             histories.sort((a, b) {
               int compare;
               if (_sortBy == 'nomor_kamar') {
@@ -96,7 +97,9 @@ class HistoriState extends State<Histori> {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 8.0, vertical: 4.0),
                   child: Card(
-                    color: Colors.blueGrey[100],
+                    color: histories[index]['status_pembayaran'] == 'Lunas'
+                        ? Colors.blueGrey[100]
+                        : Colors.amber[200],
                     elevation: 5,
                     child: ListTile(
                       title: Text(
@@ -108,15 +111,18 @@ class HistoriState extends State<Histori> {
                               '${histories[index]['tanggal_masuk']} - ${histories[index]['tanggal_keluar']}'),
                           Text('Nomor Telepon: ${histories[index]['no_telp']}'),
                           Text(
-                              'Tagihan: ${dbHelper.formatCurrency(histories[index]['tagihan'])}'),
+                              'Total Pembayaran: ${dbHelper.formatCurrency(histories[index]['total_pembayaran'])}'),
                         ],
                       ),
                       onTap: () {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) =>
-                                TenantDetailsScreen(tenant: histories[index]),
+                            builder: (context) => TenantDetailsScreen(
+                              tenant: histories[index],
+                              dbHelper: dbHelper,
+                              reloadTenants: _loadTenants,
+                            ),
                           ),
                         );
                       },
@@ -134,8 +140,15 @@ class HistoriState extends State<Histori> {
 
 class TenantDetailsScreen extends StatefulWidget {
   final Map<String, dynamic> tenant;
+  final DatabaseHelper dbHelper;
+  final Function reloadTenants;
 
-  const TenantDetailsScreen({super.key, required this.tenant});
+  const TenantDetailsScreen({
+    super.key,
+    required this.tenant,
+    required this.dbHelper,
+    required this.reloadTenants,
+  });
 
   @override
   TenantDetailsScreenState createState() => TenantDetailsScreenState();
@@ -144,29 +157,16 @@ class TenantDetailsScreen extends StatefulWidget {
 class TenantDetailsScreenState extends State<TenantDetailsScreen> {
   final DatabaseHelper dbHelper = DatabaseHelper();
   late String _statusPembayaran;
-  late int _totalPayment;
 
   @override
   void initState() {
     super.initState();
     _statusPembayaran = widget.tenant['status_pembayaran'];
-    _totalPayment = 0;
     _updateTotalPaymentAndStatus();
   }
 
-  Future<void> _updateTotalPaymentAndStatus() async {
-    final payments = await _getPayments(widget.tenant['id']);
-    int total = 0;
-    for (var payment in payments) {
-      total += int.parse(payment['nominal']);
-    }
-    setState(() {
-      _totalPayment = total;
-    });
-  }
-
   Future<List<Map<String, dynamic>>> _getPayments(int tenantId) async {
-    return await dbHelper.queryTenantPayments(tenantId);
+    return await dbHelper.queryPembayaranPenghuni(tenantId);
   }
 
   @override
@@ -183,6 +183,96 @@ class TenantDetailsScreenState extends State<TenantDetailsScreen> {
       backgroundColor: const Color(0xFFF5F5F5),
       body: _buildTenantDetails(),
     );
+  }
+
+  Future<void> _updateTotalPaymentAndStatus() async {
+    final payments = await _getPayments(widget.tenant['id']);
+    _statusPembayaran =
+        payments.any((payment) => payment['status_pembayaran'] == 'Belum Lunas')
+            ? 'Belum Lunas'
+            : 'Lunas';
+
+    await widget.dbHelper
+        .updateStatusPembayaran(widget.tenant['id'], _statusPembayaran);
+    widget.reloadTenants();
+    setState(() {});
+  }
+
+  Future<void> _showEditPaymentDialog(Map<String, dynamic> payment) async {
+    final formKey = GlobalKey<FormState>();
+    final TextEditingController statusPembayaranController =
+        TextEditingController(text: payment['status_pembayaran']);
+
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Edit Pembayaran'),
+          content: Form(
+            key: formKey,
+            child: SizedBox(
+              width: 400,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<String>(
+                    value: statusPembayaranController.text,
+                    decoration:
+                        const InputDecoration(labelText: 'Status Pembayaran'),
+                    onChanged: (String? newValue) {
+                      setState(() {
+                        statusPembayaranController.text = newValue!;
+                      });
+                    },
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'Belum Lunas',
+                        child: Text('Belum Lunas'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'Lunas',
+                        child: Text('Lunas'),
+                      ),
+                    ],
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Pilih status pembayaran';
+                      }
+                      return null;
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (formKey.currentState!.validate()) {
+                  Navigator.pop(context, {
+                    'status_pembayaran': statusPembayaranController.text,
+                  });
+                }
+              },
+              child: const Text('Submit'),
+            ),
+          ],
+        );
+      },
+    );
+    if (result != null) {
+      await widget.dbHelper.updatePembayaranPenghuni({
+        'id': payment['id'],
+        'status_pembayaran': result['status_pembayaran'],
+      });
+      _updateTotalPaymentAndStatus();
+      setState(() {});
+    }
   }
 
   Widget _buildTenantDetails() {
@@ -208,7 +298,7 @@ class TenantDetailsScreenState extends State<TenantDetailsScreen> {
                 style: const TextStyle(fontSize: 18)),
             const SizedBox(height: 8),
             Text(
-                'Tagihan: ${dbHelper.formatCurrency(widget.tenant['tagihan'])}',
+                'Total Pembayaran: ${dbHelper.formatCurrency(widget.tenant['total_pembayaran'])}',
                 style: const TextStyle(fontSize: 18)),
             const SizedBox(height: 8),
             Text('Nomor Kamar: ${widget.tenant['nomor_kamar']}',
@@ -235,20 +325,25 @@ class TenantDetailsScreenState extends State<TenantDetailsScreen> {
                     children: [
                       ...payments.map((payment) {
                         return Card(
-                          color: Colors.blueGrey[100],
+                          color: payment['status_pembayaran'] == 'Lunas'
+                              ? Colors.blueGrey[100]
+                              : Colors.amber[200],
                           elevation: 5,
                           child: ListTile(
-                            title: Text(payment['tanggal_bayar']),
-                            subtitle: Text(
-                                'Nominal: ${dbHelper.formatCurrency(payment['nominal'].toString())}'),
+                            title: Text(
+                                '${payment['tanggal_masuk']} - ${payment['tanggal_habis']}'),
+                            subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                      'Tagihan: ${dbHelper.formatCurrency(payment['tagihan'].toString())}'),
+                                  Text(
+                                      'Status Pembayaran: ${payment['status_pembayaran']}'),
+                                ]),
+                            onTap: () => _showEditPaymentDialog(payment),
                           ),
                         );
                       }),
-                      const SizedBox(height: 16.0),
-                      Text(
-                        'Total Pembayaran: ${dbHelper.formatCurrency(_totalPayment.toString())}',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
                     ],
                   );
                 }
